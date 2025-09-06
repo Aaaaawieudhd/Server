@@ -1,4 +1,4 @@
-name: Fast-Safe-RDP
+name: FastRDP
 
 on:
   workflow_dispatch:
