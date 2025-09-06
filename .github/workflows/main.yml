@@ -1,0 +1,60 @@
+name: Fast-Safe-RDP
+
+on:
+  workflow_dispatch:
+  schedule:
+    # ثلاث مرات باليوم: 6 صباحاً، 2 ظهراً، 10 مساءً
+    - cron: "0 6,14,22 * * *"
+
+jobs:
+  rdp-job:
+    runs-on: windows-latest
+    timeout-minutes: 180  # كل مرة 3 ساعات
+
+    steps:
+      - name: تفعيل RDP
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          echo "✅ تم تفعيل RDP"
+
+      - name: إنشاء مستخدم RDP
+        run: |
+          $password = "admin@123"
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          if (-not (Get-LocalUser -Name "TOOLBOXLAP" -ErrorAction SilentlyContinue)) {
+              New-LocalUser -Name "TOOLBOXLAP" -Password $securePass -AccountNeverExpires
+          }
+          Add-LocalGroupMember -Group "Administrators" -Member "TOOLBOXLAP"
+          echo "🔐 User: TOOLBOXLAP | Password: $password"
+
+      - name: تثبيت أو تحديث Tailscale
+        run: |
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+          $installerPath = "$env:TEMP\tailscale.msi"
+          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          Remove-Item $installerPath -Force
+          echo "✅ Tailscale مثبت أو محدث"
+
+      - name: تشغيل Tailscale
+        run: |
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
+          $tsIP = $null
+          $retries = 0
+          while (-not $tsIP -and $retries -lt 10) {
+              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+              Start-Sleep -Seconds 5
+              $retries++
+          }
+          if (-not $tsIP) {
+              Write-Error "Tailscale IP not assigned. Exiting."
+              exit 1
+          }
+          echo "🌐 Tailscale IP: $tsIP"
+
+      - name: تشغيل السيرفر لمدة 3 ساعات
+        run: |
+          echo "⏳ السيرفر شغال لمدة 3 ساعات..."
+          Start-Sleep -Seconds 10800
+          echo "⛔ انتهى وقت التشغيل - استراحة لباقي اليوم"
